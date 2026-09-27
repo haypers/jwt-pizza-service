@@ -38,7 +38,7 @@ function createApp() {
   app.use(express.json());
   app.use(setAuthUser);
   app.use('/api/user', userRouter);
-  app.use((err, req, res, next) => {
+  app.use((err, _req, res, _next) => {
     res.status(err.statusCode ?? 500).json({ message: err.message });
   });
   return app;

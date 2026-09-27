@@ -2,6 +2,8 @@
 
 ![Coverage badge](https://pizza-factory.cs329.click/api/badge/accountId/jwtpizzaservicecoverage)
 
+[![CI Pipeline](https://github.com/haypers/jwt-pizza-service/actions/workflows/ci.yml/badge.svg)](https://github.com/haypers/jwt-pizza-service/actions/workflows/ci.yml)
+
 Backend service for making JWT pizzas. This service tracks users and franchises and orders pizzas. All order requests are passed to the JWT Pizza Factory where the pizzas are made.
 
 JWTs are used for authentication objects.
