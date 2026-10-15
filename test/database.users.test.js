@@ -429,6 +429,92 @@ describe('updateUser', () => {
   });
 });
 
+describe('getUsers', () => {
+  function listSql(limit, offset) {
+    return `SELECT id, name, email FROM user WHERE name LIKE ? LIMIT ${limit + 1} OFFSET ${offset}`;
+  }
+
+  test('filters by name, loads roles, and does not return passwords', async () => {
+    connection.execute
+      .mockResolvedValueOnce([
+        [
+          { id: 3, name: 'Kai Chen', email: 'd@jwt.com' },
+          { id: 5, name: 'Buddy', email: 'b@jwt.com' },
+        ],
+        [],
+      ])
+      .mockResolvedValueOnce([[{ userId: 3, role: Role.Diner, objectId: 0 }], []])
+      .mockResolvedValueOnce([
+        [
+          { userId: 5, role: Role.Admin, objectId: 0 },
+          { userId: 5, role: Role.Franchisee, objectId: 2 },
+        ],
+        [],
+      ]);
+
+    const result = await DB.getUsers(1, 10, '*Kai*');
+
+    expect(result).toEqual({
+      users: [
+        { id: 3, name: 'Kai Chen', email: 'd@jwt.com', roles: [{ role: Role.Diner, objectId: undefined }] },
+        {
+          id: 5,
+          name: 'Buddy',
+          email: 'b@jwt.com',
+          roles: [
+            { role: Role.Admin, objectId: undefined },
+            { role: Role.Franchisee, objectId: 2 },
+          ],
+        },
+      ],
+      more: false,
+    });
+    expect(result.users.every((user) => !Object.hasOwn(user, 'password'))).toBe(true);
+    expect(connection.execute).toHaveBeenNthCalledWith(1, listSql(10, 0), ['%Kai%']);
+    expect(connection.execute).toHaveBeenNthCalledWith(2, SELECT_ROLES, [3]);
+    expect(connection.execute).toHaveBeenNthCalledWith(3, SELECT_ROLES, [5]);
+    expect(connection.end).toHaveBeenCalledTimes(1);
+  });
+
+  test('sets more and drops the extra row when another page exists', async () => {
+    connection.execute
+      .mockResolvedValueOnce([
+        [
+          { id: 1, name: 'A', email: 'a@jwt.com' },
+          { id: 2, name: 'B', email: 'b@jwt.com' },
+          { id: 3, name: 'C', email: 'c@jwt.com' },
+        ],
+        [],
+      ])
+      .mockResolvedValueOnce([[{ role: Role.Diner, objectId: 0 }], []])
+      .mockResolvedValueOnce([[{ role: Role.Admin, objectId: 4 }], []]);
+
+    const result = await DB.getUsers('2', '2', '*');
+
+    expect(result).toEqual({
+      users: [
+        { id: 1, name: 'A', email: 'a@jwt.com', roles: [{ role: Role.Diner, objectId: undefined }] },
+        { id: 2, name: 'B', email: 'b@jwt.com', roles: [{ role: Role.Admin, objectId: 4 }] },
+      ],
+      more: true,
+    });
+    expect(connection.execute).toHaveBeenNthCalledWith(1, listSql(2, 2), ['%']);
+    expect(connection.execute).toHaveBeenCalledTimes(3);
+    expect(connection.execute).not.toHaveBeenCalledWith(SELECT_ROLES, [3]);
+    expect(connection.end).toHaveBeenCalledTimes(1);
+  });
+
+  test('uses page 1, limit 10, and a match-all filter by default', async () => {
+    connection.execute.mockResolvedValueOnce([[], []]);
+
+    await expect(DB.getUsers()).resolves.toEqual({ users: [], more: false });
+
+    expect(connection.execute).toHaveBeenCalledTimes(1);
+    expect(connection.execute).toHaveBeenCalledWith(listSql(10, 0), ['%']);
+    expect(connection.end).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('auth tokens', () => {
   test('getTokenSignature returns the third segment, or empty when there are fewer than three', () => {
     expect(DB.getTokenSignature('header.payload.signature')).toBe('signature');

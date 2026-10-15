@@ -9,6 +9,7 @@ jest.mock('../src/database/database.js', () => ({
     addUser: jest.fn(),
     getUser: jest.fn(),
     updateUser: jest.fn(),
+    getUsers: jest.fn(),
     loginUser: jest.fn(),
     logoutUser: jest.fn(),
     isLoggedIn: jest.fn(),
@@ -60,6 +61,7 @@ function expectNoUserDbAccess() {
   expect(DB.addUser).not.toHaveBeenCalled();
   expect(DB.getUser).not.toHaveBeenCalled();
   expect(DB.updateUser).not.toHaveBeenCalled();
+  expect(DB.getUsers).not.toHaveBeenCalled();
   expect(DB.loginUser).not.toHaveBeenCalled();
   expect(DB.logoutUser).not.toHaveBeenCalled();
 }
@@ -71,6 +73,7 @@ describe('userRouter', () => {
     DB.addUser.mockReset();
     DB.getUser.mockReset();
     DB.updateUser.mockReset();
+    DB.getUsers.mockReset();
     DB.loginUser.mockReset();
     DB.logoutUser.mockReset();
     DB.isLoggedIn.mockReset();
@@ -371,19 +374,6 @@ describe('userRouter', () => {
   });
 
   describe('GET /api/user', () => {
-    test('returns the empty not-implemented list and does not touch user records', async () => {
-      DB.isLoggedIn.mockResolvedValue(true);
-      const token = signUser(admin);
-
-      const response = await request(app).get('/api/user').set(bearer(token));
-
-      expect(response.status).toBe(200);
-      expect(response.body).toEqual({ message: 'not implemented', users: [], more: false });
-      expect(DB.isLoggedIn).toHaveBeenCalledTimes(1);
-      expect(DB.isLoggedIn).toHaveBeenCalledWith(token);
-      expectNoUserDbAccess();
-    });
-
     test('returns 401 unauthorized without auth and does not touch the database', async () => {
       const response = await request(app).get('/api/user');
 
@@ -391,6 +381,50 @@ describe('userRouter', () => {
       expect(response.body).toEqual({ message: 'unauthorized' });
       expect(DB.isLoggedIn).not.toHaveBeenCalled();
       expectNoUserDbAccess();
+    });
+
+    test('returns 403 when a diner lists users', async () => {
+      DB.isLoggedIn.mockResolvedValue(true);
+      const token = signUser(diner);
+
+      const response = await request(app).get('/api/user?page=1&limit=10&name=*').set(bearer(token));
+
+      expect(response.status).toBe(403);
+      expect(response.body).toEqual({ message: 'unauthorized' });
+      expect(DB.isLoggedIn).toHaveBeenCalledWith(token);
+      expect(DB.getUsers).not.toHaveBeenCalled();
+    });
+
+    test('returns a page of users for an admin', async () => {
+      const users = [
+        { id: 3, name: 'Kai Chen', email: 'd@jwt.com', roles: [{ role: 'diner' }] },
+        { id: 5, name: 'Buddy', email: 'b@jwt.com', roles: [{ role: 'admin' }] },
+      ];
+      DB.isLoggedIn.mockResolvedValue(true);
+      DB.getUsers.mockResolvedValue({ users, more: true });
+      const token = signUser(admin);
+
+      const response = await request(app).get('/api/user?page=1&limit=10&name=*').set(bearer(token));
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ users, more: true });
+      expect(response.body.users.every((user) => !Object.hasOwn(user, 'password'))).toBe(true);
+      expect(DB.getUsers).toHaveBeenCalledTimes(1);
+      expect(DB.getUsers).toHaveBeenCalledWith('1', '10', '*');
+    });
+
+    test('returns the getUsers error status after the admin check', async () => {
+      const dbError = new Error('user list failed');
+      dbError.statusCode = 503;
+      DB.isLoggedIn.mockResolvedValue(true);
+      DB.getUsers.mockRejectedValue(dbError);
+      const token = signUser(admin);
+
+      const response = await request(app).get('/api/user').set(bearer(token));
+
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({ message: 'user list failed' });
+      expect(DB.getUsers).toHaveBeenCalledWith(undefined, undefined, undefined);
     });
   });
 });
