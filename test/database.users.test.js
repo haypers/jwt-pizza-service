@@ -429,6 +429,26 @@ describe('updateUser', () => {
   });
 });
 
+describe('deleteUser', () => {
+  const DELETE_USER_AUTH = 'DELETE FROM auth WHERE userId=?';
+  const DELETE_USER_ROLES = 'DELETE FROM userRole WHERE userId=?';
+  const DELETE_USER = 'DELETE FROM user WHERE id=?';
+
+  test('deletes auth and role rows before the user row', async () => {
+    connection.execute.mockResolvedValue([{ affectedRows: 1 }, undefined]);
+
+    await DB.deleteUser(7);
+
+    expect(connection.execute).toHaveBeenCalledTimes(3);
+    expect(connection.execute).toHaveBeenNthCalledWith(1, DELETE_USER_AUTH, [7]);
+    expect(connection.execute).toHaveBeenNthCalledWith(2, DELETE_USER_ROLES, [7]);
+    expect(connection.execute).toHaveBeenNthCalledWith(3, DELETE_USER, [7]);
+    expect(connection.execute.mock.invocationCallOrder[0]).toBeLessThan(connection.execute.mock.invocationCallOrder[1]);
+    expect(connection.execute.mock.invocationCallOrder[1]).toBeLessThan(connection.execute.mock.invocationCallOrder[2]);
+    expect(connection.end).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('getUsers', () => {
   function listSql(limit, offset) {
     return `SELECT id, name, email FROM user WHERE name LIKE ? LIMIT ${limit + 1} OFFSET ${offset}`;

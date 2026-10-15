@@ -10,6 +10,7 @@ jest.mock('../src/database/database.js', () => ({
     getUser: jest.fn(),
     updateUser: jest.fn(),
     getUsers: jest.fn(),
+    deleteUser: jest.fn(),
     loginUser: jest.fn(),
     logoutUser: jest.fn(),
     isLoggedIn: jest.fn(),
@@ -62,6 +63,7 @@ function expectNoUserDbAccess() {
   expect(DB.getUser).not.toHaveBeenCalled();
   expect(DB.updateUser).not.toHaveBeenCalled();
   expect(DB.getUsers).not.toHaveBeenCalled();
+  expect(DB.deleteUser).not.toHaveBeenCalled();
   expect(DB.loginUser).not.toHaveBeenCalled();
   expect(DB.logoutUser).not.toHaveBeenCalled();
 }
@@ -74,6 +76,7 @@ describe('userRouter', () => {
     DB.getUser.mockReset();
     DB.updateUser.mockReset();
     DB.getUsers.mockReset();
+    DB.deleteUser.mockReset();
     DB.loginUser.mockReset();
     DB.logoutUser.mockReset();
     DB.isLoggedIn.mockReset();
@@ -350,19 +353,6 @@ describe('userRouter', () => {
   });
 
   describe('DELETE /api/user/:userId', () => {
-    test('returns the not-implemented stub and does not touch user records', async () => {
-      DB.isLoggedIn.mockResolvedValue(true);
-      const token = signUser(diner);
-
-      const response = await request(app).delete(`/api/user/${diner.id}`).set(bearer(token));
-
-      expect(response.status).toBe(200);
-      expect(response.body).toEqual({ message: 'not implemented' });
-      expect(DB.isLoggedIn).toHaveBeenCalledTimes(1);
-      expect(DB.isLoggedIn).toHaveBeenCalledWith(token);
-      expectNoUserDbAccess();
-    });
-
     test('returns 401 unauthorized without auth and does not touch the database', async () => {
       const response = await request(app).delete('/api/user/2');
 
@@ -370,6 +360,45 @@ describe('userRouter', () => {
       expect(response.body).toEqual({ message: 'unauthorized' });
       expect(DB.isLoggedIn).not.toHaveBeenCalled();
       expectNoUserDbAccess();
+    });
+
+    test('returns 403 when a diner deletes a user', async () => {
+      DB.isLoggedIn.mockResolvedValue(true);
+      const token = signUser(diner);
+
+      const response = await request(app).delete(`/api/user/${diner.id}`).set(bearer(token));
+
+      expect(response.status).toBe(403);
+      expect(response.body).toEqual({ message: 'unauthorized' });
+      expect(DB.isLoggedIn).toHaveBeenCalledWith(token);
+      expect(DB.deleteUser).not.toHaveBeenCalled();
+    });
+
+    test('deletes the requested user for an admin', async () => {
+      DB.isLoggedIn.mockResolvedValue(true);
+      DB.deleteUser.mockResolvedValue(undefined);
+      const token = signUser(admin);
+
+      const response = await request(app).delete(`/api/user/${diner.id}`).set(bearer(token));
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ message: 'user deleted' });
+      expect(DB.deleteUser).toHaveBeenCalledTimes(1);
+      expect(DB.deleteUser).toHaveBeenCalledWith(diner.id);
+    });
+
+    test('returns the deleteUser error status after the admin check', async () => {
+      const dbError = new Error('user delete failed');
+      dbError.statusCode = 503;
+      DB.isLoggedIn.mockResolvedValue(true);
+      DB.deleteUser.mockRejectedValue(dbError);
+      const token = signUser(admin);
+
+      const response = await request(app).delete(`/api/user/${diner.id}`).set(bearer(token));
+
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({ message: 'user delete failed' });
+      expect(DB.deleteUser).toHaveBeenCalledWith(diner.id);
     });
   });
 
