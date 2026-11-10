@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const config = require('../config.js');
 const { asyncHandler } = require('../endpointHelper.js');
 const { DB, Role } = require('../database/database.js');
+const metrics = require('../metrics.js');
 
 const authRouter = express.Router();
 
@@ -39,6 +40,7 @@ async function setAuthUser(req, res, next) {
         // Check the database to make sure the token is valid.
         req.user = jwt.verify(token, config.jwtSecret);
         req.user.isRole = (role) => !!req.user.roles.find((r) => r.role === role);
+        metrics.userActive(req.user.id);
       }
     } catch {
       req.user = null;
@@ -65,6 +67,7 @@ authRouter.post(
     }
     const user = await DB.addUser({ name, email, password, roles: [{ role: Role.Diner }] });
     const auth = await setAuth(user);
+    metrics.userActive(user.id);
     res.json({ user: user, token: auth });
   })
 );
@@ -74,8 +77,16 @@ authRouter.put(
   '/',
   asyncHandler(async (req, res) => {
     const { email, password } = req.body;
-    const user = await DB.getUser(email, password);
+    let user;
+    try {
+      user = await DB.getUser(email, password);
+    } catch (err) {
+      metrics.authAttempt(false);
+      throw err;
+    }
+    metrics.authAttempt(true);
     const auth = await setAuth(user);
+    metrics.userActive(user.id);
     res.json({ user: user, token: auth });
   })
 );
@@ -86,6 +97,7 @@ authRouter.delete(
   authRouter.authenticateToken,
   asyncHandler(async (req, res) => {
     await clearAuth(req);
+    metrics.userInactive(req.user.id);
     res.json({ message: 'logout successful' });
   })
 );
